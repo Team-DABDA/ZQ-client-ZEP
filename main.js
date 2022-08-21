@@ -5,36 +5,6 @@ const STATE_JUDGE = 3004;
 const STATE_END = 3005;
 
 const TIME = 5;
-const SCORE = 5;
-const QUESTION = [
-  // {
-  //   type: true,
-  //   content: "달팽이도 이빨이 있는가?",
-  //   answer: "true",
-  // },
-  // {
-  //   type: true,
-  //   content: "딸기는 장미과에 속하는가??",
-  //   answer: "true",
-  // },
-  // {
-  //   type: true,
-  //   content: "하마는 말의 일종인가?",
-  //   answer: "true",
-  // },
-  // {
-  //   type: false,
-  //   content:
-  //     "18세기 중엽 영국에서 시작된 기술혁신과 이에 수반하여 일어난 사회 · 경제 구조의 변혁을 무엇이라 할까요??",
-  //   answer: "산업혁명",
-  // },
-  // {
-  //   type: true,
-  //   content:
-  //     "미국 캘리포니아주 남서부 애너하임에 위치해 있는 세계적인 유원지이자, 대규모의 오락시설인 이곳은 어디일까요?",
-  //   answer: "디즈니랜드",
-  // },
-];
 
 let _state = STATE_INIT;
 let _start = false;
@@ -46,22 +16,26 @@ let _currentQuestion = "";
 let _currentAnswer = "";
 let _result = "";
 let _players = App.players;
-let _currentQuestionNumber = -1;
+let _currentQuestionNumber = 0;
+
+let _questionId = "";
+let QUESTION = [];
+let SCORE = 5;
 
 // App 실행 시에 최초로 호출되는 이벤트 (유저 진입 전)
 // Normal App과 Sidebar App은 Script 적용 후 맵이 실행될 때 호출 [ Enter ]
-App.onInit.Add(function(){
-  App.sayToAll("------------------------------------------------")
-  App.sayToAll("      🎉 Z:Q에 입장하신 것을 환영합니다! 🎉      ")
-  App.sayToAll("------------------------------------------------")
+App.onInit.Add(function () {
+  App.sayToAll("------------------------------------------------");
+  App.sayToAll("              🎉 Welcome to Z:Q! 🎉            ");
+  App.sayToAll("------------------------------------------------");
 });
 
 // 플레이어 모두 진입 시 최초로 시작되는 이벤트 [ Enter ]
 // 모든 플레이어가 onJoinPlayer를 통해 입장한 후 한 번 호출
-App.onStart.Add(function(){
-  App.sayToAll("------------------------------------------------")
-  App.sayToAll("🧐 스피드 퀴즈 대결을 펼칠 퀴즈를 선택해주세요! 🧐")
-  App.sayToAll("------------------------------------------------")
+App.onStart.Add(function () {
+  App.sayToAll("------------------------------------------------");
+  App.sayToAll("       🧐 Select quiz for speed game! 🧐       ");
+  App.sayToAll("------------------------------------------------");
 
   widget = App.showWidget("widget.html", "top", 600, 500);
 
@@ -70,23 +44,41 @@ App.onStart.Add(function(){
     // 위젯에서 App으로 'type: close'라는 메시지를 보내면 위젯을 파괴함
     if (msg.type == "close") {
       widget.destroy();
-      App.showCenterLabel("--- 문제 선택 종료 ---");
+      App.showCenterLabel("--- Quit quiz selecting ---");
       // 앱 종료 시키기 함수
     } else if (msg.type == "start") {
-      startGame(STATE_INIT);
+      _questionId = msg.id;
+      loadQuestionData();
+      // startGame(STATE_INIT);
       widget.destroy();
     }
   });
-
 });
+
+function loadQuestionData() {
+  App.httpGet(
+    `http://ec2-52-78-122-223.ap-northeast-2.compute.amazonaws.com/api/quiz/${_questionId}`,
+    null,
+    function (res) {
+      // 응답 결과를 JSON 오브젝트로 변경
+      let response = JSON.parse(res);
+      QUESTION = response.quiz_question;
+      SCORE = response.quiz_score;
+      App.showCenterLabel(`--- [ There's total of ${QUESTION.length} questions. ] ---`);
+      startGame(STATE_INIT);
+    }
+  );
+}
 
 function startGame(state) {
   if (state != STATE_INIT) {
     return;
   }
-  App.showCenterLabel("--- 게임이 곧 시작됩니다! ---");
+  App.showCenterLabel("--- Speed Quiz Game will start soon! ---");
   App.runLater(function () {
-    App.showCenterLabel("--- [스피드 퀴즈 시작] : 답을 외치려면 shift키를 입력하세요! ---");
+    App.showCenterLabel(
+      "--- [ Speed Quiz Game Start ] : Click 'shift' button to answer the question! ---"
+    );
     _start = true;
     _state = STATE_READY;
     _currentQuestionNumber = 0;
@@ -97,16 +89,15 @@ function startGame(state) {
 // 이후 플레이어가 입장 할 때마다 호출 [ Events ]
 // onInit이 호출된 후, 접속해 있는 모든 플레이어를 해당 이벤트를 통해 입장시키고, 이후 입장하는 플레이어가 있을 때 마다 동작합니다.
 App.onJoinPlayer.Add(function (player) {
-
-  App.showCenterLabel(`${player.name}님이 입장하셨습니다.`)
+  App.showCenterLabel(`--- [ ${player.name} entered Z:Q ] ---`);
 
   player.tag = {
     score: 0,
   };
   player.sendUpdated();
 
-  App.sayToAll(`${player.name}의 처음 점수는 ${player.tag.score}`)
-
+  
+  App.sayToAll(`${player.name}의 처음 점수는 ${player.tag.score}`);
 });
 
 // 20ms 마다 호출되는 이벤트
@@ -114,23 +105,22 @@ App.onJoinPlayer.Add(function (player) {
 App.onUpdate.Add(function (dt) {
   if (_currentQuestionNumber == QUESTION.length) {
     _state = STATE_END;
-    return;
+  } else {
+    _currenttype = QUESTION[_currentQuestionNumber].type;
+    _currentQuestion = QUESTION[_currentQuestionNumber].content;
+    _currentAnswer = QUESTION[_currentQuestionNumber].answer;
   }
   if (!_start) {
     return;
   }
   _stateTimer += dt;
 
-  // const type = QUESTION[_currentQuestionNumber].type;
-  _currentQuestion = QUESTION[_currentQuestionNumber].content;
-  _currentAnswer = QUESTION[_currentQuestionNumber].answer;
-
   switch (_state) {
     case STATE_INIT:
       break;
     case STATE_READY:
       App.runLater(function () {
-        App.showCenterLabel(`Q. ${_currentQuestion}`);
+        App.showCenterLabel(`${type} : Q. ${_currentQuestion}`);
         _state = STATE_PLAYING;
         _timer = 90;
         _stateTimer = 0;
@@ -142,7 +132,7 @@ App.onUpdate.Add(function (dt) {
         _timer -= 1;
       }
       if (_timer <= 0) {
-        App.showCenterLabel(`정답은 ${_currentAnswer}입니다!`);
+        App.showCenterLabel(`--- The answer is '${_currentAnswer}'! ---`);
         _state = STATE_JUDGE;
         _currentWinner = null;
       }
@@ -153,18 +143,18 @@ App.onUpdate.Add(function (dt) {
           return;
         } else {
           _isKeyPressed = true;
-          _currentSpeaker = pla
+          _currentSpeaker = player;
         }
-        App.showCenterLabel(`${player.name} 님이 답변을 입력합니다.`);
+        App.showCenterLabel(`--- [ ${player.name} has right to answer the question! ] ---`);
         App.onSay.add(function (player, text) {
           if (_currentAnswer == text) {
             _currentWinner = player.name;
             player.tag.score += SCORE;
             _state = STATE_JUDGE;
             player.sendUpdated();
-            App.sayToAll(`${player.name}의 현재 점수는 ${player.tag.score}`)
+            App.sayToAll(`${player.name}의 현재 점수는 ${player.tag.score}`);
           } else {
-            App.showCenterLabel("정답이 아닙니다!!");
+            App.showCenterLabel("--- [Wrong Answer] : Other person can try for the answeer! ---");
           }
           _isKeyPressed = false;
           return;
@@ -173,18 +163,23 @@ App.onUpdate.Add(function (dt) {
       break;
     case STATE_JUDGE:
       if (_currentWinner != null) {
-        App.showCenterLabel(`${_currentWinner} 님이 정답을 맞히셨습니다!`);
+        App.showCenterLabel(`--- [Right Answer] : Congretulation ${_currentWinner}! ---`);
       } else {
-        App.showCenterLabel(`아무도 정답을 맞히지 못했습니다. 이런!`);
+        App.showCenterLabel(`--- [Everyone Failed] : No one has got the right answer... Moving on to next question! ---`);
       }
       _isKeyPressed = false;
-      _state = STATE_READY;
       _currentQuestionNumber += 1;
+      if (_currentQuestionNumber == QUESTION.length) {
+        _state = STATE_END;
+      }
+      App.sayToAll(`${_currentQuestionNumber}번째 문제입니다`);
       break;
     case STATE_END:
+      // App.sayToAll(`끝으로~~!!`);
       winner = findFinalWinner();
-      App.showCenterLabel(`🎉최종 우승자는 ${winner.join(" ")} 님입니다!🎉`);
+      App.showCenterLabel(`--- 🎉최종 우승자는 ${winner} 님입니다!🎉 ---`);
       _start = false;
+      initGame();
       break;
   }
 });
@@ -199,31 +194,36 @@ function findFinalWinner() {
       winner.push(player.name);
     }
   }
+  App.sayToAll(`우승자${winner}}입니다`);
   return winner;
 }
 
-function playGame(question) {
-  const type = question.type;
-  const content = question.content;
-  const answer = question.answer;
-
-  App.showCenterLabel(`Q. ${content}`);
+function initGame() {
+  _start = false;
+  _isGameOpened = false;
+  _state = STATE_INIT;
+  _timer = 20;
+  _isKeyPressed = false;
+  _currentSpeaker = null;
+  _currentQuestion = null;
+  _currentAnswer = null;
+  _currentQuestionNumber = 0;
 }
 
 // 이벤트 콜백 처리 후 다시 onUpdate
 
 // App 종료 시 모든 플레이어를 App에서 나가게 함 [ Exit ]
 // 퇴장하는 플레이어가 있을 때 마다 동작합니다. 이후, 다른 App이 실행되거나 설치한 Game Block이 파괴될 때 모든 플레이어를 이 함수를 통해 퇴장시킵니다.
-App.onLeavePlayer.Add(function(player){
-  App.showCenterLabel(`${player.name}님이 퇴장하셨습니다.`)
+App.onLeavePlayer.Add(function (player) {
+  App.showCenterLabel(`--- [ ${player.name} exited Z:Q ] ---`);
 });
 
 // App 종료 시 마지막으로 호출 [ Exit ]
 // Normal App과 Sidebar App은 별도의 종료
 // 다른 App이 실행되거나 설치한 Game Block이 파괴될 때 동작
-App.onDestroy.Add(function(){
-  App.showCenterLabel("--- 다음에 또 Z:Q에서 만나요! ---")
-  App.sayToAll("------------------------------------------------")
-  App.sayToAll("             👋🏻 Z:Q를 종료합니다! 👋🏻            ")
-  App.sayToAll("------------------------------------------------")
+App.onDestroy.Add(function () {
+  App.showCenterLabel("--- See U again in Z:Q! ---");
+  App.sayToAll("------------------------------------------------");
+  App.sayToAll("          👋🏻 Closing Z:Q... Good Bye! 👋🏻        ");
+  App.sayToAll("------------------------------------------------");
 });
